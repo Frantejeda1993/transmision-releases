@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>Transmisión</title>
+<style>
+  :root {
+    --bg: #0E1116; --card: #161B22; --raised: #1C222B; --border: #2A313C;
+    --text: #E6EAF0; --text2: #9AA4B2; --accent: #4F8CFF; --accent-hover: #6FA0FF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px;
+  }
+  main { width: 100%; max-width: 460px; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+  .logo { width: 48px; height: 48px; flex: none; }
+  h1 { font-size: 26px; margin: 0; font-weight: 600; }
+  .tag { margin: 2px 0 0; color: var(--text2); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  .label { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--text2); margin: 0 0 8px; }
+  .code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 44px; letter-spacing: 9px; margin: 0 0 16px; word-break: break-all; }
+  .btn {
+    display: block; width: 100%; text-align: center; text-decoration: none; cursor: pointer;
+    border-radius: 10px; padding: 13px 16px; font: inherit; font-size: 16px; font-weight: 600;
+    border: 1px solid var(--border); background: var(--raised); color: var(--text);
+  }
+  .btn:hover { border-color: #3A4452; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+  h2 { font-size: 18px; margin: 0 0 12px; font-weight: 600; }
+  ol { margin: 16px 0 0; padding-left: 22px; color: var(--text2); font-size: 14.5px; line-height: 1.55; }
+  ol li { margin-bottom: 6px; }
+  ol b { color: var(--text); font-weight: 600; }
+  .hint { color: var(--text2); font-size: 13px; margin: 12px 0 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 44 44" aria-hidden="true">
+      <rect width="44" height="44" rx="11.4" fill="#4F8CFF"/>
+      <path d="M13 13v18l14-9z" fill="#fff" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M29.1 15.9a11 11 0 0 1 0 12.2" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M34 11.7a17 17 0 0 1 0 20.6" fill="none" stroke="#fff" stroke-opacity=".67" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <h1>Transmisión</h1>
+      <p class="tag">Compartí tu pantalla con baja latencia</p>
+    </div>
+  </div>
+
+  <section class="card" id="join" hidden>
+    <p class="label">Código de sala</p>
+    <p class="code" id="code"></p>
+    <a class="btn primary" id="open" href="#">Abrir en Transmisión</a>
+    <p class="hint">Si el navegador pregunta, permití abrir Transmisión. Si no pasa nada, instalala con los pasos de abajo y volvé a tocar el botón.</p>
+  </section>
+
+  <section class="card">
+    <h2 id="dl-title">Descargá Transmisión</h2>
+    <p class="label" id="no-app" hidden>¿No la tenés instalada?</p>
+    <a class="btn primary" id="download" rel="noopener">Descargar el instalador</a>
+    <ol>
+      <li><b>Descargá</b> el archivo <b>Transmision-Setup</b> con el botón de arriba (en la página que se abre, elegilo en "Assets").</li>
+      <li><b>Abrilo.</b> Si Windows muestra "Windows protegió su PC" (el programa no está firmado), hacé clic en <b>Más información</b> y después en <b>Ejecutar de todas formas</b>.</li>
+      <li><b>Seguí el instalador</b> (no pide permisos de administrador) y volvé a esta página para tocar "Abrir en Transmisión".</li>
+    </ol>
+    <p class="hint">Necesita Windows 10 u 11 de 64 bits y, para ver el video, una placa NVIDIA.</p>
+  </section>
+</main>
+<script>
+(function () {
+  "use strict";
+  // Same alphabet as tx_proto::CODE_ALPHABET (no 0/O, 1/I/L).
+  var ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  var LENGTH = 6;
+  var RELEASES_URL = "https://github.com/Frantejeda1993/transmision-releases/releases/latest";
+
+  function readCode() {
+    var raw = decodeURIComponent((location.hash || "").slice(1));
+    var code = raw.replace(/[\s-]/g, "").toUpperCase();
+    if (code.length !== LENGTH) return null;
+    for (var i = 0; i < code.length; i++) {
+      if (ALPHABET.indexOf(code.charAt(i)) === -1) return null;
+    }
+    return code;
+  }
+
+  function render() {
+    var code = null;
+    try { code = readCode(); } catch (e) { code = null; }
+    var join = document.getElementById("join");
+    var noApp = document.getElementById("no-app");
+    var title = document.getElementById("dl-title");
+    if (code) {
+      // Only the validated code is used; it is text-only and URL-safe.
+      document.getElementById("code").textContent = code;
+      document.getElementById("open").setAttribute("href", "transmision://join/" + code);
+      join.hidden = false;
+      noApp.hidden = false;
+      title.hidden = true;
+    } else {
+      join.hidden = true;
+      noApp.hidden = true;
+      title.hidden = false;
+    }
+  }
+
+  document.getElementById("download").setAttribute("href", RELEASES_URL);
+  window.addEventListener("hashchange", render);
+  render();
+})();
+</script>
+</body>
+</html>
