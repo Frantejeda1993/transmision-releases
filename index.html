@@ -67,9 +67,10 @@
   <section class="card">
     <h2 id="dl-title">Descargá Transmisión</h2>
     <p class="label" id="no-app" hidden>¿No la tenés instalada?</p>
-    <a class="btn primary" id="download" rel="noopener">Descargar el instalador</a>
+    <a class="btn primary" id="download" rel="noopener" href="https://github.com/Frantejeda1993/transmision-releases/releases/latest/download/Transmision-Setup.exe">Descargar para Windows</a>
+    <p class="hint"><a id="all-versions" rel="noopener" href="https://github.com/Frantejeda1993/transmision-releases/releases/latest">Ver todas las versiones</a></p>
     <ol>
-      <li><b>Descargá</b> el archivo <b>Transmision-Setup</b> con el botón de arriba (en la página que se abre, elegilo en "Assets").</li>
+      <li><b>Descargá</b> el instalador con el botón de arriba.</li>
       <li><b>Abrilo.</b> Si Windows muestra "Windows protegió su PC" (el programa no está firmado), hacé clic en <b>Más información</b> y después en <b>Ejecutar de todas formas</b>.</li>
       <li><b>Seguí el instalador</b> (no pide permisos de administrador) y volvé a esta página para tocar "Abrir en Transmisión".</li>
     </ol>
@@ -82,7 +83,6 @@
   // Same alphabet as tx_proto::CODE_ALPHABET (no 0/O, 1/I/L).
   var ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   var LENGTH = 6;
-  var RELEASES_URL = "https://github.com/Frantejeda1993/transmision-releases/releases/latest";
 
   function readCode() {
     var raw = decodeURIComponent((location.hash || "").slice(1));
@@ -114,7 +114,6 @@
     }
   }
 
-  document.getElementById("download").setAttribute("href", RELEASES_URL);
   window.addEventListener("hashchange", render);
   render();
 })();
