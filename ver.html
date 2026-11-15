@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src wss://129.146.117.49; media-src blob: mediastream:; base-uri 'none'; form-action 'none'">
+<title>Transmisión - Mirar</title>
+<style>
+  :root {
+    --bg: #0E1116; --card: #161B22; --raised: #1C222B; --border: #2A313C;
+    --text: #E6EAF0; --text2: #9AA4B2; --accent: #4F8CFF; --accent-hover: #6FA0FF;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #stage { position: fixed; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .bar { position: absolute; left: 0; right: 0; display: flex; gap: 8px; align-items: center;
+    padding: 10px max(16px, env(safe-area-inset-left)); pointer-events: none; }
+  .top { top: 0; padding-top: max(10px, env(safe-area-inset-top)); background: linear-gradient(#000a, #0000); }
+  .bottom { bottom: 0; justify-content: flex-end; padding-bottom: max(12px, env(safe-area-inset-bottom));
+    background: linear-gradient(#0000, #000a); }
+  .bar > * { pointer-events: auto; }
+  #status { font-size: 14px; color: var(--text); text-shadow: 0 1px 3px #000; flex: 1; min-width: 0; }
+  #debug { position: absolute; left: 16px; bottom: 64px; font: 12px ui-monospace, Consolas, monospace;
+    color: #cfe3ff; background: #000a; padding: 4px 8px; border-radius: 6px; max-width: calc(100% - 32px); }
+  .btn { font: inherit; font-size: 14px; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--raised); color: var(--text); min-height: 40px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:hover { border-color: var(--accent-hover); }
+  .btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+  #ask { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
+  #ask form { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: min(360px, 100%); }
+  #ask h1 { margin: 0 0 4px; font-size: 20px; }
+  #ask p { margin: 0 0 14px; color: var(--text2); font-size: 14px; }
+  #ask input { width: 100%; font: 28px ui-monospace, Consolas, monospace; letter-spacing: 6px; text-align: center;
+    text-transform: uppercase; padding: 10px; margin-bottom: 14px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--raised); color: var(--text); }
+  #ask .btn { width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline autoplay muted></video>
+  <div class="bar top"><span id="status" role="status" aria-live="polite">Conectando…</span>
+    <button class="btn" id="retry" hidden>Reconectar</button></div>
+  <div id="debug" hidden></div>
+  <div class="bar bottom">
+    <button class="btn" id="sound" hidden>Activar sonido</button>
+    <button class="btn" id="full" aria-label="Pantalla completa">Pantalla completa</button>
+  </div>
+</div>
+<div id="ask" hidden>
+  <form id="askform">
+    <h1>Mirar en el navegador</h1>
+    <p>Escribí el código de sala que ves en Transmisión.</p>
+    <input id="codein" maxlength="9" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" aria-label="Código de sala">
+    <button class="btn primary" type="submit">Mirar</button>
+  </form>
+</div>
+<script>
+(function () {
+  "use strict";
+  var SERVER = "wss://129.146.117.49/";
+  // Same alphabet as tx_proto::CODE_ALPHABET (no 0/O, 1/I/L).
+  var ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  var LENGTH = 6;
+  var GATHER_CAP_MS = 3000;
+
+  var params = new URLSearchParams(location.search);
+  var debug = params.get("debug") === "1";
+  var forceRelay = params.get("relay") === "1";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var video = $("video"), statusEl = $("status"), retryBtn = $("retry"),
+      soundBtn = $("sound"), fullBtn = $("full"), debugEl = $("debug");
+
+  var code = null, ws = null, pc = null, stream = null, generation = 0;
+  var lastState = "nuevo", hostLeft = false;
+
+  function normalize(raw) {
+    var c = String(raw || "").replace(/[\s-]/g, "").toUpperCase();
+    if (c.length !== LENGTH) return null;
+    for (var i = 0; i < c.length; i++) if (ALPHABET.indexOf(c.charAt(i)) === -1) return null;
+    return c;
+  }
+
+  // Room links carry the code after "#" (like the download page); "?c=" and
+  // "?sala=" work too.
+  function readCode() {
+    var fromHash = "";
+    try { fromHash = decodeURIComponent((location.hash || "").slice(1)); } catch (e) { fromHash = ""; }
+    return normalize(fromHash) || normalize(params.get("c")) || normalize(params.get("sala")) || normalize(params.get("code"));
+  }
+
+  function setStatus(text, state, canRetry) {
+    statusEl.textContent = text;
+    lastState = state;
+    retryBtn.hidden = !canRetry;
+  }
+
+  function closeAll() {
+    generation++;
+    var w = ws, p = pc;
+    ws = null; pc = null; stream = null;
+    if (w) { w.onopen = w.onmessage = w.onerror = w.onclose = null; try { w.close(1000); } catch (e) {} }
+    if (p) { p.ontrack = p.onconnectionstatechange = p.oniceconnectionstatechange = null; try { p.close(); } catch (e) {} }
+    video.srcObject = null;
+    soundBtn.hidden = true;
+  }
+
+  function fail(text) {
+    closeAll();
+    setStatus(text, "error", true);
+  }
+
+  function connect() {
+    closeAll();
+    hostLeft = false;
+    var mine = generation;
+    setStatus("Conectando…", "conectando", false);
+    var socket;
+    try { socket = new WebSocket(SERVER); } catch (e) { return fail("No se pudo conectar con el servidor."); }
+    ws = socket;
+    var offerHandled = false;
+
+    socket.onopen = function () {
+      if (mine !== generation) return;
+      socket.send(JSON.stringify({ t: "join", code: code }));
+    };
+    socket.onerror = function () { /* onclose follows with the outcome */ };
+    socket.onclose = function () {
+      if (mine !== generation) return;
+      if (hostLeft) return;
+      fail(offerHandled ? "Se cortó la conexión con el servidor." : "No se pudo conectar con el servidor.");
+    };
+    socket.onmessage = function (event) {
+      if (mine !== generation) return;
+      var msg;
+      try { msg = JSON.parse(event.data); } catch (e) { return; }
+      switch (msg.t) {
+        case "joined":
+          setStatus("Esperando a quien transmite…", "esperando", false);
+          prepare(mine, msg.ice_servers || []);
+          break;
+        case "signal":
+          if (offerHandled || !msg.sdp) return;
+          offerHandled = true;
+          answer(mine, msg.sdp);
+          break;
+        case "host_left":
+          hostLeft = true;
+          closeAll();
+          setStatus("Quien transmite cerró la sala.", "cerrada", true);
+          break;
+        case "error":
+          fail(describeError(msg.reason));
+          break;
+      }
+    };
+  }
+
+  function describeError(reason) {
+    var r = String(reason || "").toLowerCase();
+    if (r.indexOf("no existe") !== -1 || r.indexOf("not found") !== -1 || r.indexOf("unknown") !== -1)
+      return "No existe una sala con ese código.";
+    if (r.indexOf("llena") !== -1 || r.indexOf("full") !== -1) return "La sala está llena.";
+    return "El servidor rechazó la conexión" + (reason ? ": " + reason : ".");
+  }
+
+  function prepare(mine, iceServers) {
+    var config = { iceServers: iceServers, bundlePolicy: "max-bundle" };
+    if (forceRelay) config.iceTransportPolicy = "relay";
+    var p;
+    try { p = new RTCPeerConnection(config); } catch (e) { return fail("Este navegador no puede recibir video en vivo."); }
+    pc = p;
+    stream = new MediaStream();
+    video.srcObject = stream;
+    p.ontrack = function (e) {
+      if (mine !== generation) return;
+      stream.addTrack(e.track);
+      // Lowest delay the browser allows: the host already paces its frames.
+      try { if ("jitterBufferTarget" in e.receiver) e.receiver.jitterBufferTarget = 0; } catch (x) {}
+      try { if ("playoutDelayHint" in e.receiver) e.receiver.playoutDelayHint = 0; } catch (x) {}
+      if (e.track.kind === "audio") soundBtn.hidden = !video.muted;
+      video.play().catch(function () {});
+    };
+    p.onconnectionstatechange = function () {
+      if (mine !== generation) return;
+      var s = p.connectionState;
+      if (s === "connected") setStatus("Conectado", "conectado", false);
+      else if (s === "failed") fail("No se pudo establecer la conexión de video.");
+      else if (s === "disconnected") setStatus("Reconectando…", "reconectando", false);
+    };
+  }
+
+  function answer(mine, sdp) {
+    var p = pc;
+    if (!p) return;
+    p.setRemoteDescription({ type: "offer", sdp: sdp })
+      .then(function () { return p.createAnswer(); })
+      .then(function (a) { return p.setLocalDescription(a); })
+      .then(function () { return gathered(p); })
+      .then(function () {
+        if (mine !== generation || !ws) return;
+        ws.send(JSON.stringify({ t: "signal", sdp: p.localDescription.sdp }));
+        setStatus("Conectando…", "conectando", false);
+      })
+      .catch(function (e) {
+        if (mine === generation) fail("No se pudo negociar el video: " + (e && e.message ? e.message : e));
+      });
+  }
+
+  // Non-trickle: the answer must carry its candidates. Capped, so a slow STUN
+  // or TURN server does not hold the connection back.
+  function gathered(p) {
+    return new Promise(function (resolve) {
+      if (p.iceGatheringState === "complete") return resolve();
+      var done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        p.removeEventListener("icegatheringstatechange", check);
+        clearTimeout(timer);
+        resolve();
+      }
+      function check() { if (p.iceGatheringState === "complete") finish(); }
+      var timer = setTimeout(finish, GATHER_CAP_MS);
+      p.addEventListener("icegatheringstatechange", check);
+    });
+  }
+
+  // Diagnostics: read by the debug line and by tests (CDP).
+  window.txStats = function () {
+    var p = pc;
+    var out = { state: p ? p.connectionState : "sin conexión", framesDecoded: 0, frameWidth: 0, frameHeight: 0,
+                fps: 0, bytesReceived: 0, candidatePair: null };
+    if (!p) return Promise.resolve(out);
+    return p.getStats().then(function (report) {
+      var pairs = {}, cands = {}, selected = null, transportPair = null;
+      report.forEach(function (s) {
+        if (s.type === "inbound-rtp" && (s.kind || s.mediaType) === "video") {
+          out.framesDecoded = s.framesDecoded || 0;
+          out.frameWidth = s.frameWidth || 0;
+          out.frameHeight = s.frameHeight || 0;
+          out.fps = s.framesPerSecond || 0;
+          out.bytesReceived = s.bytesReceived || 0;
+        } else if (s.type === "candidate-pair") pairs[s.id] = s;
+        else if (s.type === "local-candidate" || s.type === "remote-candidate") cands[s.id] = s;
+        else if (s.type === "transport" && s.selectedCandidatePairId) transportPair = s.selectedCandidatePairId;
+      });
+      selected = (transportPair && pairs[transportPair]) || null;
+      if (!selected) {
+        Object.keys(pairs).forEach(function (k) {
+          if (!selected && pairs[k].state === "succeeded" && (pairs[k].nominated || pairs[k].selected)) selected = pairs[k];
+        });
+      }
+      if (selected) {
+        var l = cands[selected.localCandidateId], r = cands[selected.remoteCandidateId];
+        out.candidatePair = { local: l ? l.candidateType : null, remote: r ? r.candidateType : null };
+      }
+      return out;
+    }).catch(function () { return out; });
+  };
+
+  function tickDebug() {
+    if (!debug) return;
+    debugEl.hidden = false;
+    window.txStats().then(function (s) {
+      var pair = s.candidatePair ? s.candidatePair.local + "/" + s.candidatePair.remote : "-";
+      debugEl.textContent = s.state + " · " + s.frameWidth + "x" + s.frameHeight + " · " + Math.round(s.fps) +
+        " fps · " + s.framesDecoded + " cuadros · " + (s.bytesReceived / 1e6).toFixed(2) + " MB · " + pair;
+    });
+  }
+
+  function fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+  fullBtn.onclick = function () {
+    var stage = $("stage");
+    if (fullscreenElement()) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else if (stage.requestFullscreen) {
+      stage.requestFullscreen().catch(function () {});
+    } else if (stage.webkitRequestFullscreen) {
+      stage.webkitRequestFullscreen();
+    } else if (video.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen(); // iPhone: only the video element can go fullscreen
+    }
+  };
+  soundBtn.onclick = function () {
+    video.muted = false;
+    video.play().catch(function () {});
+    soundBtn.hidden = true;
+  };
+  retryBtn.onclick = connect;
+
+  // Close the signaling and media cleanly when the page goes away. "pageshow"
+  // with persisted=true is the back/forward cache giving the page back.
+  window.addEventListener("pagehide", closeAll);
+  window.addEventListener("pageshow", function (e) { if (e.persisted && code) connect(); });
+
+  $("askform").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var c = normalize($("codein").value);
+    if (!c) { $("codein").focus(); return; }
+    code = c;
+    $("ask").hidden = true;
+    try { history.replaceState(null, "", location.pathname + location.search + "#" + c); } catch (x) {}
+    connect();
+  });
+
+  code = readCode();
+  if (code) connect();
+  else { $("ask").hidden = false; $("codein").focus(); setStatus("Falta el código de sala.", "sin código", false); }
+  setInterval(tickDebug, 1000);
+})();
+</script>
+</body>
+</html>
