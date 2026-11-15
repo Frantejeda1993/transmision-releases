@@ -50,6 +50,7 @@
   <div id="debug" hidden></div>
   <div class="bar bottom">
     <button class="btn" id="sound" hidden>Activar sonido</button>
+    <button class="btn" id="mic" hidden aria-pressed="false">Hablar</button>
     <button class="btn" id="full" aria-label="Pantalla completa">Pantalla completa</button>
   </div>
 </div>
@@ -110,7 +111,45 @@
     if (p) { p.ontrack = p.onconnectionstatechange = p.oniceconnectionstatechange = null; try { p.close(); } catch (e) {} }
     video.srcObject = null;
     soundBtn.hidden = true;
+    stopMic();
+    voiceSender = null;
+    micBtn.hidden = true;
   }
+
+  // Voice chat: the host's offer has a second audio m-line, sent both ways.
+  // The microphone only opens when the button is pressed.
+  var voiceSender = null, micTrack = null;
+  var micBtn = document.getElementById("mic");
+
+  function stopMic() {
+    if (micTrack) { try { micTrack.stop(); } catch (e) {} }
+    micTrack = null;
+    if (voiceSender) { try { voiceSender.replaceTrack(null); } catch (e) {} }
+    micBtn.textContent = "Hablar";
+    micBtn.setAttribute("aria-pressed", "false");
+    micBtn.classList.remove("primary");
+  }
+
+  micBtn.addEventListener("click", function () {
+    if (micTrack) return stopMic();
+    if (!voiceSender || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    var sender = voiceSender;
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      .then(function (media) {
+        var track = media.getAudioTracks()[0];
+        if (!track || sender !== voiceSender) { media.getTracks().forEach(function (t) { t.stop(); }); return; }
+        micTrack = track;
+        return sender.replaceTrack(track).then(function () {
+          micBtn.textContent = "Silenciar micrófono";
+          micBtn.setAttribute("aria-pressed", "true");
+          micBtn.classList.add("primary");
+        });
+      })
+      .catch(function () {
+        stopMic();
+        setStatus("No se pudo usar el micrófono (revisá el permiso del navegador).", lastState, false);
+      });
+  });
 
   function fail(text) {
     closeAll();
@@ -200,13 +239,28 @@
   function answer(mine, sdp) {
     var p = pc;
     if (!p) return;
+    var voice = false;
     p.setRemoteDescription({ type: "offer", sdp: sdp })
-      .then(function () { return p.createAnswer(); })
+      .then(function () {
+        // The second audio transceiver is voice chat: answer it send-and-receive
+        // (nothing is sent until the microphone is turned on).
+        var audio = p.getTransceivers().filter(function (t) { return t.receiver.track.kind === "audio"; });
+        if (audio.length >= 2) {
+          voice = true;
+          audio[1].direction = "sendrecv";
+          voiceSender = audio[1].sender;
+        }
+        return p.createAnswer();
+      })
       .then(function (a) { return p.setLocalDescription(a); })
       .then(function () { return gathered(p); })
       .then(function () {
         if (mine !== generation || !ws) return;
-        ws.send(JSON.stringify({ t: "signal", sdp: p.localDescription.sdp }));
+        var answerSdp = p.localDescription.sdp;
+        // Tells the host this page takes part in voice chat.
+        if (voice) answerSdp = answerSdp.replace(/\r?\n?$/, "\r\n") + "a=x-tx-voice\r\n";
+        micBtn.hidden = !voice;
+        ws.send(JSON.stringify({ t: "signal", sdp: answerSdp }));
         setStatus("Conectando…", "conectando", false);
       })
       .catch(function (e) {
