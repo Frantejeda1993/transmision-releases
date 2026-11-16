@@ -344,39 +344,80 @@
     return el;
   }
 
-  function row(nameText, tags, speaking, button) {
+  // Rows are kept and updated in place: rebuilding them ten times a second
+  // replaced the buttons between press and release, so clicks were lost.
+  var rows = {};
+  function rowFor(key, withButton) {
+    if (rows[key]) return rows[key];
     var r = document.createElement("div");
     r.className = "person";
     var dot = document.createElement("span");
-    dot.className = "dot" + (speaking ? " on" : "");
-    dot.setAttribute("aria-label", speaking ? "hablando" : "");
+    dot.className = "dot";
     var who = document.createElement("div");
     who.className = "who";
-    who.appendChild(text("div", nameText, "name"));
-    if (tags) who.appendChild(text("div", tags, "tags"));
+    var nm = text("div", "", "name");
+    var tags = text("div", "", "tags");
+    who.appendChild(nm);
+    who.appendChild(tags);
     r.appendChild(dot);
     r.appendChild(who);
-    if (button) r.appendChild(button);
-    return r;
+    var button = null;
+    if (withButton) {
+      button = document.createElement("button");
+      button.className = "btn small";
+      button.onclick = function () {
+        var m = members[key];
+        if (!m) return;
+        m.muted = !m.muted;
+        applySound();
+        render();
+      };
+      r.appendChild(button);
+    }
+    rows[key] = { row: r, dot: dot, name: nm, tags: tags, button: button };
+    return rows[key];
+  }
+
+  function fill(entry, nameText, tagsText, speaking, buttonText) {
+    if (entry.name.textContent !== nameText) entry.name.textContent = nameText;
+    if (entry.tags.textContent !== tagsText) entry.tags.textContent = tagsText;
+    entry.tags.hidden = !tagsText;
+    var cls = "dot" + (speaking ? " on" : "");
+    if (entry.dot.className !== cls) entry.dot.className = cls;
+    entry.dot.setAttribute("aria-label", speaking ? "hablando" : "");
+    if (entry.button && entry.button.textContent !== buttonText) entry.button.textContent = buttonText;
   }
 
   function render() {
     var now = Date.now();
-    listEl.textContent = "";
-    if (you === null) return;
-    listEl.appendChild(row(name + " (vos)", micTrack ? "" : "micrófono apagado", now < meSpeakingUntil, null));
+    if (you === null) {
+      listEl.textContent = "";
+      rows = {};
+      return;
+    }
+    var order = ["me"];
+    fill(rowFor("me", false), name + " (vos)", micTrack ? "" : "micrófono apagado", now < meSpeakingUntil, "");
     Object.keys(members).map(Number).sort(function (a, b) { return a - b; }).forEach(function (id) {
       var m = members[id];
       var tags = [];
       if (!m.info.mic) tags.push("micrófono apagado");
       if (m.info.sharing) tags.push("comparte pantalla");
       if (m.info.web) tags.push("navegador");
+      if (m.muted) tags.push("silenciado por vos");
       if (!m.pc || m.pc.connectionState !== "connected") tags.push("conectando…");
-      var b = document.createElement("button");
-      b.className = "btn small";
-      b.textContent = m.muted ? "Activar sonido" : "Silenciar";
-      b.onclick = function () { m.muted = !m.muted; applySound(); render(); };
-      listEl.appendChild(row(m.info.name, tags.join(" · "), !m.muted && now < m.speakingUntil, b));
+      fill(rowFor(id, true), m.info.name, tags.join(" · "), !m.muted && now < m.speakingUntil, m.muted ? "Activar sonido" : "Silenciar");
+      order.push(id);
+    });
+    Object.keys(rows).forEach(function (key) {
+      if (order.indexOf(key === "me" ? "me" : Number(key)) === -1) {
+        rows[key].row.remove();
+        delete rows[key];
+      }
+    });
+    // Append in order (moving an existing node keeps it, and its button, alive).
+    order.forEach(function (key, i) {
+      var r = rows[key].row;
+      if (listEl.children[i] !== r) listEl.insertBefore(r, listEl.children[i] || null);
     });
   }
 
