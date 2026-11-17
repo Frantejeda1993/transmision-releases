@@ -28,21 +28,52 @@
   #debug { position: absolute; left: 16px; bottom: 64px; font: 12px ui-monospace, Consolas, monospace;
     color: #cfe3ff; background: #000a; padding: 4px 8px; border-radius: 6px; max-width: calc(100% - 32px); }
   .btn { font: inherit; font-size: 14px; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
     border: 1px solid var(--border); background: var(--raised); color: var(--text); min-height: 40px; }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.small { font-size: 13px; padding: 6px 10px; min-height: 32px; }
+  .btn.small { font-size: 13px; padding: 6px 12px; min-height: 36px; }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .count { background: var(--accent); color: #fff; border-radius: 999px; font-size: 12px; min-width: 20px; padding: 1px 6px; }
   .btn:hover { border-color: var(--accent-hover); }
   .btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
   #people { position: absolute; top: max(56px, calc(env(safe-area-inset-top) + 46px)); right: 12px; width: min(320px, calc(100% - 24px));
     max-height: calc(100% - 140px); overflow-y: auto; background: #161B22ee; border: 1px solid var(--border);
     border-radius: 12px; padding: 8px; }
   #people h2 { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--text2); margin: 4px 6px 8px; }
-  .person { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; }
-  .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--text2); flex: none; }
-  .dot.on { background: var(--talk); border-color: var(--talk); box-shadow: 0 0 0 3px #3fb95040; }
+  .person { display: flex; align-items: center; gap: 12px; padding: 8px 6px; border-radius: 8px; min-height: 52px; }
+  /* Avatar with initials; a green ring while the person speaks (also said in
+     words in the status line: not by color alone). */
+  .dot { width: 36px; height: 36px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: #fff; box-shadow: 0 0 0 2px var(--card); transition: box-shadow .15s ease, opacity .15s ease; }
+  .dot.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--talk); }
+  .dot.muted { opacity: .45; }
   .who { flex: 1; min-width: 0; }
   .who .name { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .who .tags { font-size: 12px; color: var(--text2); }
+  .who .tags { font-size: 12.5px; color: var(--text2); margin-top: 2px; }
+  .who .tags.talking { color: var(--talk); }
+  /* Per-person volume: a slider under the name (only for others, not for me). */
+  .vol { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+  .vol input[type=range], #vpop input[type=range] { flex: 1; min-width: 0; height: 32px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .vol .pct, #vpop .pct { font-size: 12.5px; color: var(--text2); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  /* Right-click / long-press popup with the volume of the shared screen. */
+  #vpop { position: fixed; left: 0; top: 0; right: auto; bottom: auto; margin: 0; transform: none; z-index: 5; width: 250px; max-width: calc(100% - 16px); background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px; box-shadow: 0 6px 24px #000a; }
+  #vpop h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+  #vpop .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #vpop .btn { width: 100%; min-height: 44px; }
+  #stage video { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  @media (max-width: 640px) {
+    /* Phones: the people list is a sheet at the bottom, over the controls. */
+    #people { top: auto; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 64px); right: 8px; left: 8px; width: auto; max-height: 45vh; }
+    .bar.bottom { justify-content: center; }
+    .bar.bottom .btn { flex: 1 1 0; min-height: 48px; padding: 9px 8px; }
+    .bar.bottom .label-long { display: none; }
+  }
+  /* Fullscreen: controls fade out after a few idle seconds (see idle()). */
+  .bar, #people, #debug, #vpop { transition: opacity .25s ease; }
+  #stage.idle .bar, #stage.idle #people, #stage.idle #debug, #stage.idle #vpop { opacity: 0; pointer-events: none; }
+  #stage.idle { cursor: none; }
+  @media (prefers-reduced-motion: reduce) { .dot, .bar, #people, #debug, #vpop { transition: none; } }
   #ask { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
   #ask form { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: min(360px, 100%); }
   #ask h1 { margin: 0 0 4px; font-size: 20px; }
@@ -60,14 +91,19 @@
   <video id="video" playsinline autoplay muted></video>
   <div id="empty">Nadie está compartiendo pantalla. Podés hablar con los demás.</div>
   <div class="bar top"><span id="status" role="status" aria-live="polite">Conectando…</span>
-    <button class="btn small" id="peoplebtn" aria-expanded="true">Personas</button>
+    <button class="btn small" id="peoplebtn" aria-expanded="true" aria-controls="people"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg><span>Personas</span><span class="count" id="peoplecount">1</span></button>
     <button class="btn small" id="retry" hidden>Reconectar</button></div>
   <div id="people"><h2>En el canal</h2><div id="list"></div></div>
   <div id="debug" hidden></div>
+  <div id="vpop" role="dialog" aria-label="Volumen de la transmisión" hidden>
+    <h3>Volumen de la transmisión</h3>
+    <div class="row"><input type="range" id="vslider" min="0" max="100" step="5" value="100" aria-label="Volumen de la transmisión"><span class="pct" id="vpct">100 %</span></div>
+    <button class="btn" id="vmute" aria-pressed="false">Silenciar</button>
+  </div>
   <div class="bar bottom">
-    <button class="btn primary" id="sound">Activar sonido</button>
-    <button class="btn" id="mic" aria-pressed="false">Hablar</button>
-    <button class="btn" id="full" aria-label="Pantalla completa">Pantalla completa</button>
+    <button class="btn primary" id="sound"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg><span>Activar sonido</span></button>
+    <button class="btn" id="mic" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="miclabel">Hablar</span></button>
+    <button class="btn" id="full" aria-label="Pantalla completa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span class="label-long">Pantalla completa</span></button>
   </div>
 </div>
 <div id="ask" hidden>
@@ -102,6 +138,8 @@
   var code = null, name = "", ws = null, generation = 0, you = null, iceServers = [];
   var lastState = "nuevo", members = {}, soundOn = false, audioCtx = null;
   var micTrack = null, micLevel = null, meSpeakingUntil = 0, shownStream = null;
+  // Volume of the shared screen, for this session (the popup edits it).
+  var streamVolume = 1, streamMuted = false, popTimer = null, pressTimer = null;
 
   function normalize(raw) {
     var c = String(raw || "").replace(/[\s-]/g, "").toUpperCase();
@@ -154,10 +192,15 @@
   function applySound() {
     Object.keys(members).forEach(function (id) {
       var m = members[id];
-      if (m.voiceEl) m.voiceEl.muted = !soundOn || m.muted;
+      if (m.voiceEl) {
+        m.voiceEl.muted = !soundOn || m.muted;
+        m.voiceEl.volume = m.volume;
+      }
     });
-    video.muted = !soundOn;
+    video.muted = !soundOn || streamMuted;
+    video.volume = streamVolume;
     soundBtn.hidden = soundOn;
+    syncPop();
   }
 
   soundBtn.onclick = function () {
@@ -180,7 +223,7 @@
       var tx = members[id].voiceTx;
       if (tx) { try { tx.sender.replaceTrack(null); } catch (e) {} }
     });
-    micBtn.textContent = "Hablar";
+    $("miclabel").textContent = "Hablar";
     micBtn.setAttribute("aria-pressed", "false");
     micBtn.classList.remove("primary");
     sendState();
@@ -201,7 +244,7 @@
           var tx = members[id].voiceTx;
           if (tx) tx.sender.replaceTrack(track).catch(function () {});
         });
-        micBtn.textContent = "Silenciar micrófono";
+        $("miclabel").textContent = "Micrófono activado";
         micBtn.setAttribute("aria-pressed", "true");
         micBtn.classList.add("primary");
         if (!soundOn) soundBtn.onclick();
@@ -213,7 +256,7 @@
   // ------------------------------------------------------------- members --
   function addMember(info) {
     var m = members[info.id] || { info: info, pc: null, voiceTx: null, voiceEl: null, level: null,
-      speakingUntil: 0, muted: false, video: null, sound: null, offering: false };
+      speakingUntil: 0, muted: false, volume: 1, video: null, sound: null, offering: false };
     m.info = info;
     members[info.id] = m;
     render();
@@ -330,7 +373,13 @@
     var tracks = s && s.video ? [s.video].concat(s.sound ? [s.sound] : []) : [];
     var key = tracks.map(function (t) { return t.id; }).join(",");
     emptyEl.hidden = tracks.length > 0;
+    if (!tracks.length) closePop();
     if (shownStream && shownStream.key === key) return;
+    // On a phone the list would cover the screen that just appeared.
+    if (tracks.length && !shownStream && window.matchMedia("(max-width: 640px)").matches && !$("people").hidden) {
+      $("people").hidden = true;
+      $("peoplebtn").setAttribute("aria-expanded", "false");
+    }
     shownStream = tracks.length ? new MediaStream(tracks) : null;
     if (shownStream) shownStream.key = key;
     video.srcObject = shownStream;
@@ -361,6 +410,25 @@
     who.appendChild(tags);
     r.appendChild(dot);
     r.appendChild(who);
+    var slider = null, pct = null;
+    if (withButton) {
+      var vol = document.createElement("div");
+      vol.className = "vol";
+      slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = "0"; slider.max = "100"; slider.step = "5"; slider.value = "100";
+      pct = text("span", "100 %", "pct");
+      slider.oninput = function () {
+        var m = members[key];
+        if (!m) return;
+        m.volume = Number(slider.value) / 100;
+        pct.textContent = slider.value + " %";
+        applySound();
+      };
+      vol.appendChild(slider);
+      vol.appendChild(pct);
+      who.appendChild(vol);
+    }
     var button = null;
     if (withButton) {
       button = document.createElement("button");
@@ -374,18 +442,44 @@
       };
       r.appendChild(button);
     }
-    rows[key] = { row: r, dot: dot, name: nm, tags: tags, button: button };
+    rows[key] = { row: r, dot: dot, name: nm, tags: tags, button: button, slider: slider, pct: pct };
     return rows[key];
   }
 
-  function fill(entry, nameText, tagsText, speaking, buttonText) {
+  // Initials and a stable color per name (white text on all of them >= 4.5:1).
+  var AVATAR_COLORS = ["#2F5BB7", "#7E3FB0", "#A2385C", "#9A4A12", "#2F7A4A", "#1F6E8C", "#5A5F73", "#8A3B3B"];
+  function initials(n) {
+    var parts = String(n || "").trim().split(/\s+/).filter(Boolean);
+    var first = parts[0] ? Array.from(parts[0])[0] : "?";
+    var second = parts[1] ? Array.from(parts[1])[0] : (parts[0] && Array.from(parts[0])[1]) || "";
+    return (first + second).toUpperCase();
+  }
+  function avatarColor(n) {
+    var h = 0;
+    for (var i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) >>> 0;
+    return AVATAR_COLORS[h % AVATAR_COLORS.length];
+  }
+
+  function fill(entry, nameText, tagsText, speaking, buttonText, muted, avatarName) {
+    var letters = initials(avatarName || nameText);
+    if (entry.dot.textContent !== letters) entry.dot.textContent = letters;
+    entry.dot.style.background = avatarColor(avatarName || nameText);
+    if (speaking) tagsText = tagsText ? "hablando · " + tagsText : "hablando";
+    entry.tags.className = "tags" + (speaking ? " talking" : "");
     if (entry.name.textContent !== nameText) entry.name.textContent = nameText;
     if (entry.tags.textContent !== tagsText) entry.tags.textContent = tagsText;
     entry.tags.hidden = !tagsText;
-    var cls = "dot" + (speaking ? " on" : "");
+    var cls = "dot" + (speaking ? " on" : "") + (muted ? " muted" : "");
     if (entry.dot.className !== cls) entry.dot.className = cls;
-    entry.dot.setAttribute("aria-label", speaking ? "hablando" : "");
-    if (entry.button && entry.button.textContent !== buttonText) entry.button.textContent = buttonText;
+    entry.dot.setAttribute("aria-hidden", "true");
+    if (entry.button && entry.button.textContent !== buttonText) {
+      entry.button.textContent = buttonText;
+      entry.button.setAttribute("aria-label", buttonText + " a " + nameText);
+    }
+    if (entry.slider) {
+      var label = "Volumen de " + nameText;
+      if (entry.slider.getAttribute("aria-label") !== label) entry.slider.setAttribute("aria-label", label);
+    }
   }
 
   function render() {
@@ -396,7 +490,7 @@
       return;
     }
     var order = ["me"];
-    fill(rowFor("me", false), name + " (vos)", micTrack ? "" : "micrófono apagado", now < meSpeakingUntil, "");
+    fill(rowFor("me", false), name + " (vos)", micTrack ? "" : "micrófono apagado", now < meSpeakingUntil, "", false, name);
     Object.keys(members).map(Number).sort(function (a, b) { return a - b; }).forEach(function (id) {
       var m = members[id];
       var tags = [];
@@ -405,7 +499,14 @@
       if (m.info.web) tags.push("navegador");
       if (m.muted) tags.push("silenciado por vos");
       if (!m.pc || m.pc.connectionState !== "connected") tags.push("conectando…");
-      fill(rowFor(id, true), m.info.name, tags.join(" · "), !m.muted && now < m.speakingUntil, m.muted ? "Activar sonido" : "Silenciar");
+      var entry = rowFor(id, true);
+      var pctValue = String(Math.round(m.volume * 100));
+      // Not while dragging: the slider already holds the value being set.
+      if (entry.slider && document.activeElement !== entry.slider && entry.slider.value !== pctValue) {
+        entry.slider.value = pctValue;
+        entry.pct.textContent = pctValue + " %";
+      }
+      fill(entry, m.info.name, tags.join(" · "), !m.muted && now < m.speakingUntil, m.muted ? "Activar sonido" : "Silenciar", m.muted, m.info.name);
       order.push(id);
     });
     Object.keys(rows).forEach(function (key) {
@@ -414,6 +515,8 @@
         delete rows[key];
       }
     });
+    var count = String(order.length);
+    if ($("peoplecount").textContent !== count) $("peoplecount").textContent = count;
     // Append in order (moving an existing node keeps it, and its button, alive).
     order.forEach(function (key, i) {
       var r = rows[key].row;
@@ -548,8 +651,102 @@
     });
   }, 1000);
 
+  // ------------------------------------------------------- stream volume --
+  var pop = $("vpop"), vslider = $("vslider"), vpct = $("vpct"), vmute = $("vmute");
+  function syncPop() {
+    var shown = Math.round(streamVolume * 100);
+    if (Number(vslider.value) !== shown) vslider.value = String(shown);
+    vpct.textContent = shown + " %";
+    var off = !soundOn || streamMuted;
+    vmute.setAttribute("aria-pressed", String(off));
+    vmute.textContent = off ? "Activar sonido" : "Silenciar";
+  }
+  function closePop() {
+    clearTimeout(popTimer);
+    pop.hidden = true;
+  }
+  function keepPop() {
+    clearTimeout(popTimer);
+    popTimer = setTimeout(closePop, 4000);
+  }
+  function openPop(x, y) {
+    if (!shownStream) return;
+    syncPop();
+    pop.style.visibility = "hidden";
+    pop.hidden = false;
+    var rc = pop.getBoundingClientRect(), w = rc.width, h = rc.height;
+    var vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    pop.style.left = Math.max(8, Math.min(x + 4, vw - w - 8)) + "px";
+    pop.style.top = Math.max(8, Math.min(y + 4, vh - h - 8)) + "px";
+    pop.style.visibility = "visible";
+    vslider.focus();
+    keepPop();
+  }
+  vslider.addEventListener("input", function () {
+    streamVolume = Number(vslider.value) / 100;
+    if (streamVolume > 0) streamMuted = false;
+    if (!soundOn) soundBtn.onclick(); // choosing a volume turns the sound on, like the button
+    applySound();
+    keepPop();
+  });
+  vmute.addEventListener("click", function () {
+    if (!soundOn) { streamMuted = false; soundBtn.onclick(); }
+    else streamMuted = !streamMuted;
+    applySound();
+    keepPop();
+  });
+  ["pointermove", "pointerdown", "keydown"].forEach(function (type) {
+    pop.addEventListener(type, function () { if (!pop.hidden) keepPop(); });
+  });
+  document.addEventListener("pointerdown", function (e) { if (!pop.hidden && !pop.contains(e.target)) closePop(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !pop.hidden) closePop(); });
+  $("stage").addEventListener("contextmenu", function (e) {
+    if (!shownStream || pop.contains(e.target) || (e.target.closest && e.target.closest(".bar, #people"))) return;
+    e.preventDefault();
+    openPop(e.clientX, e.clientY);
+  });
+  // Touch: a long press (600 ms) on the video opens the same popup.
+  var pressStart = null;
+  function cancelPress() { clearTimeout(pressTimer); pressTimer = null; }
+  video.addEventListener("touchstart", function (e) {
+    cancelPress();
+    if (!shownStream || e.touches.length !== 1) return;
+    var t = e.touches[0], sx = t.clientX, sy = t.clientY;
+    pressStart = [sx, sy];
+    pressTimer = setTimeout(function () {
+      pressTimer = null;
+      if (!pop.hidden) return;
+      openPop(sx, sy);
+    }, 600);
+  }, { passive: true });
+  video.addEventListener("touchmove", function (e) {
+    var t = e.touches[0];
+    if (pressTimer && pressStart && t && Math.abs(t.clientX - pressStart[0]) + Math.abs(t.clientY - pressStart[1]) > 10) cancelPress();
+  }, { passive: true });
+  video.addEventListener("touchend", cancelPress);
+  video.addEventListener("touchcancel", cancelPress);
+  syncPop();
+
   // ------------------------------------------------------------ interface --
   function fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+
+  // In fullscreen the controls, the people list and the cursor hide after
+  // IDLE_MS without input; any movement, touch or key brings them back.
+  var IDLE_MS = 3000, idleTimer = null;
+  function idle() {
+    var stage = $("stage");
+    clearTimeout(idleTimer);
+    stage.classList.remove("idle");
+    if (!fullscreenElement()) return;
+    idleTimer = setTimeout(function () {
+      if (fullscreenElement()) { stage.classList.add("idle"); closePop(); }
+    }, IDLE_MS);
+  }
+  ["mousemove", "pointerdown", "touchstart", "keydown", "wheel"].forEach(function (type) {
+    document.addEventListener(type, idle, { passive: true });
+  });
+  document.addEventListener("fullscreenchange", idle);
+  document.addEventListener("webkitfullscreenchange", idle);
   fullBtn.onclick = function () {
     var stage = $("stage");
     if (fullscreenElement()) {
